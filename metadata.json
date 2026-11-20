@@ -1,0 +1,8 @@
+{
+  "name": "Tạo Ảnh Đề Thi GDPT 2018",
+  "description": "Ứng dụng tách đề thi, tự động giải chi tiết theo chương trình GDPT 2018 Việt Nam và xuất hình ảnh từng câu hỏi sắc nét hàng loạt.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
