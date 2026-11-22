@@ -1032,11 +1032,11 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '20mb' }));
 
-  app.get('/api/health', (_req: Request, res: Response) => {
+  app.get(/\/api\/health\/?$/, (_req: Request, res: Response) => {
     res.json({ ok: true, timestamp: new Date().toISOString() });
   });
 
-  app.post('/api/parse-exam', upload.single('file'), async (req: Request, res: Response) => {
+  app.post(/\/api\/parse-exam\/?$/, upload.single('file'), async (req: Request, res: Response) => {
     try {
       const textContent = typeof req.body?.textContent === 'string' ? req.body.textContent.trim() : '';
       const subjectHint = typeof req.body?.subjectHint === 'string' ? req.body.subjectHint.trim() : '';
@@ -1133,7 +1133,7 @@ async function startServer() {
         contents: { parts },
         systemInstruction: PARSE_SYSTEM_INSTRUCTION,
         responseSchema: PARSE_RESPONSE_SCHEMA,
-        thinkingLevel: ThinkingLevel.MEDIUM,
+        thinkingLevel: ThinkingLevel.LOW,
       });
 
       const parsed = JSON.parse(rawJson) as {
@@ -1243,7 +1243,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/solve-question', async (req: Request, res: Response) => {
+  app.post(/\/api\/solve-question\/?$/, async (req: Request, res: Response) => {
     try {
       const { questionNumber, partTitle, type, content, options, subjectHint, questionImages } =
         req.body as {
@@ -1333,7 +1333,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/solve-batch', async (req: Request, res: Response) => {
+  app.post(/\/api\/solve-batch\/?$/, async (req: Request, res: Response) => {
     try {
       const { questions, subjectHint } = req.body as {
         questions?: Array<{
@@ -1387,7 +1387,7 @@ async function startServer() {
         systemInstruction:
           'Bạn là giáo viên giỏi chuyên môn theo Chương trình Giáo dục Phổ thông 2018 Việt Nam. Giải chính xác tuyệt đối (kể cả câu có hình vẽ đồ thị/hình học), ngắn gọn mạch lạc, dùng LaTeX chuẩn KaTeX.',
         responseSchema: SOLVE_BATCH_SCHEMA,
-        thinkingLevel: ThinkingLevel.MEDIUM,
+        thinkingLevel: ThinkingLevel.LOW,
       });
 
       const parsed = JSON.parse(rawJson) as {

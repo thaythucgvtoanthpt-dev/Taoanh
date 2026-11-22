@@ -11,18 +11,51 @@ export class ApiConnectionError extends Error {
   }
 }
 
-async function checkServerHealth(): Promise<boolean> {
+function buildFallbackRelativeUrl(input: RequestInfo | URL): string | null {
+  if (typeof input !== 'string' || !input.startsWith('/api/')) return null;
   try {
-    const res = await fetch('/api/health', {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    });
-    if (!res.ok) return false;
-    const text = await res.text();
-    return text.includes('"ok":true');
+    const relativePath = input.slice(1); // "api/parse-exam"
+    const resolved = new URL(relativePath, window.location.href).toString();
+    const rootResolved = new URL(input, window.location.origin).toString();
+    return resolved !== rootResolved ? resolved : null;
   } catch {
-    return false;
+    return null;
+  }
+}
+
+async function checkServerHealth(): Promise<boolean> {
+  const candidates = ['/api/health'];
+  const rel = buildFallbackRelativeUrl('/api/health');
+  if (rel) candidates.push(rel);
+
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (text.includes('"ok":true')) return true;
+    } catch {
+      // try next candidate
+    }
+  }
+  return false;
+}
+
+function tryParseJson(trimmed: string): unknown {
+  if (!trimmed) return null;
+  const looksLikeHtml =
+    trimmed.startsWith('<!') ||
+    trimmed.startsWith('<html') ||
+    trimmed.startsWith('<HTML');
+  if (looksLikeHtml) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
   }
 }
 
@@ -37,23 +70,42 @@ export async function safeFetchJson<T>(
     ...init,
   };
 
+  let targetInput: RequestInfo | URL = input;
+  const fallbackRelativeUrl = buildFallbackRelativeUrl(input);
+
   let res: Response | null = null;
   let rawText = '';
   let lastNetworkError: unknown = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      res = await fetch(input, fetchInit);
+      res = await fetch(targetInput, fetchInit);
       rawText = await res.text();
       const trimmedCheck = rawText.trim();
+      const parsedCheck = tryParseJson(trimmedCheck);
 
       // If Nginx returned its warmup HTML page while the server was starting, retry automatically
       const isWarmupPage =
         trimmedCheck.includes('Starting Server...') ||
         trimmedCheck.includes('warmup');
 
-      if (isWarmupPage && attempt < maxRetries) {
-        await new Promise((r) => setTimeout(r, 1800 * (attempt + 1)));
+      // Non-JSON 404/502/503/504 usually comes from a cold-starting proxy or sub-path mismatch (never our Express JSON handler)
+      const isTransientProxyError =
+        !res.ok &&
+        parsedCheck === null &&
+        (res.status === 404 ||
+          res.status === 502 ||
+          res.status === 503 ||
+          res.status === 504);
+
+      if (res.status === 404 && parsedCheck === null && fallbackRelativeUrl && targetInput === input) {
+        targetInput = fallbackRelativeUrl;
+        continue;
+      }
+
+      if ((isWarmupPage || isTransientProxyError) && attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 1600 * (attempt + 1)));
+        await checkServerHealth();
         continue;
       }
 
@@ -84,20 +136,11 @@ export async function safeFetchJson<T>(
   }
 
   const trimmed = rawText.trim();
-
-  let parsed: unknown = null;
   const looksLikeHtml =
     trimmed.startsWith('<!') ||
     trimmed.startsWith('<html') ||
     trimmed.startsWith('<HTML');
-
-  if (!looksLikeHtml && trimmed.length > 0) {
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      parsed = null;
-    }
-  }
+  const parsed = tryParseJson(trimmed);
 
   if (!res.ok) {
     if (
@@ -107,6 +150,12 @@ export async function safeFetchJson<T>(
       typeof (parsed as { error: unknown }).error === 'string'
     ) {
       throw new Error((parsed as { error: string }).error);
+    }
+    if (res.status === 404) {
+      throw new ApiConnectionError(
+        'Không tìm thấy dịch vụ xử lý AI trên phiên hiện tại (mã 404 — có thể máy chủ vừa khởi động lại hoặc phiên xem trước đã cũ). Vui lòng bấm "Tải lại trang" rồi thử lại.',
+        true
+      );
     }
     if (res.status === 413) {
       throw new Error(
